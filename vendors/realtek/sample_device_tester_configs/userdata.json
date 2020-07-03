@@ -1,0 +1,37 @@
+{
+  "sourcePath": "C:/working/github/ambd_amazon-freertos",
+  "vendorPath": "C:/working/github/ambd_amazon-freertos/vendors/realtek/boards/amebaD",
+  "buildTool": {
+    "name": "IAR",
+    "version": "8.1",
+    "command": [
+      "C:/working/github/devicetester_freertos_win/configs/build.bat"
+    ]
+  },
+  "flashTool": {
+    "name": "1-10_MP_Image_Tool",
+    "version": "2.4",
+    "command": [
+      "C:/working/github/devicetester_freertos_win/configs/flash.bat"
+    ],
+    "buildImageInfo" : {
+      "testsImageName": "km0_km4_image.bin",
+      "demosImageName": "km0_km4_image.bin"
+    }
+  },
+  "clientWifiConfig": {
+    "wifiSSID": "TestAP",
+    "wifiPassword": "Password",
+    "wifiSecurityType": "eWiFiSecurityWPA2"
+  },
+  "testWifiConfig": {
+    "wifiSSID": "TestAP",
+    "wifiPassword": "Password",
+    "wifiSecurityType": "eWiFiSecurityWPA2"
+  },
+  "echoServerConfiguration": {
+    "securePortForSecureSocket": 33333,
+    "insecurePortForSecureSocket": 33334,
+    "insecurePortForWiFi": 33335
+  }
+}
