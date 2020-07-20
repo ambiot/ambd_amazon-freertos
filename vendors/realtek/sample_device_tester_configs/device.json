@@ -9,7 +9,7 @@
       },
       {
         "name": "OTA",
-        "value": "No",
+        "value": "Yes",
         "configs": [
           {
             "name": "OTADataPlaneProtocol",

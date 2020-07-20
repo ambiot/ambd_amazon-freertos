@@ -29,6 +29,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "iot_crypto.h"
 #include "aws_ota_codesigner_certificate.h"
 #include "aws_iot_ota_agent_internal.h"
+#include "aws_application_version.h"
 #include "platform_opts.h"
 #if CONFIG_EXAMPLE_AMAZON_AFQP_TESTS
 #include "aws_test_runner_config.h"
@@ -158,8 +159,9 @@ OTA_Err_t prvPAL_Abort_rtl8721d(OTA_FileContext_t *C)
 bool_t prvPAL_CreateFileForRx_rtl8721d(OTA_FileContext_t *C)
 {
 	int sector_cnt = 0;
+        int i=0;
 	uint32_t data;
-	//flash_t flash;
+	flash_t flash;
 
 	if (ota_get_cur_index() == OTA_INDEX_1) {
 		ota_target_index = OTA_INDEX_2;
@@ -184,13 +186,16 @@ bool_t prvPAL_CreateFileForRx_rtl8721d(OTA_FileContext_t *C)
         aws_ota_imgaddr = C->lFileHandle;
         data = HAL_READ32(SPI_FLASH_BASE, FLASH_SYSTEM_DATA_ADDR);
         OTA_PRINT("[OTA] addr: 0x%08x, data 0x%08x\r\n", aws_ota_imgaddr, data);
-
-		//device_mutex_lock(RT_DEV_LOCK_FLASH);
-        //for( i = 0; i < sector_cnt; i++)
-        //{
-        //    flash_erase_sector(&flash, aws_ota_imgaddr - SPI_FLASH_BASE + i * 4096);
-	    //}
-		//device_mutex_unlock(RT_DEV_LOCK_FLASH);
+#ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS || testrunnerFULL_OTA_PAL_ENABLED
+#else
+        device_mutex_lock(RT_DEV_LOCK_FLASH);
+        for( i = 0; i < sector_cnt; i++)
+        {
+            OTA_PRINT("[OTA] Erase sector @ 0x%x\n", C->lFileHandle - SPI_FLASH_BASE + i * 4096);
+            flash_erase_sector(&flash, aws_ota_imgaddr - SPI_FLASH_BASE + i * 4096);
+	    }
+		device_mutex_unlock(RT_DEV_LOCK_FLASH);
+#endif
     }
     else {
         OTA_PRINT("[OTA] invalid ota addr (%d) \r\n", C->lFileHandle);
@@ -260,7 +265,7 @@ static OTA_Err_t prvSignatureVerificationUpdate_rtl8721d(OTA_FileContext_t *C, v
         goto error;
     }
 
-#if testrunnerFULL_OTA_PAL_ENABLED
+#ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS || testrunnerFULL_OTA_PAL_ENABLED
 	/* read flash data back to check signature of the image */
 	for(i=0;i<len;i+=BUF_SIZE){
 		rlen = (len-i)>BUF_SIZE?BUF_SIZE:(len-i);
@@ -271,7 +276,7 @@ static OTA_Err_t prvSignatureVerificationUpdate_rtl8721d(OTA_FileContext_t *C, v
 		CRYPTO_SignatureVerificationUpdate(pvContext, pTempbuf, rlen);
 	}
 #else
-    /*add image signature*/
+    /*add image signature(81958711)*/
 	CRYPTO_SignatureVerificationUpdate(pvContext, aws_ota_signature, 8);
 
     len = len-8;
@@ -418,7 +423,7 @@ OTA_Err_t prvPAL_CloseFile_rtl8721d(OTA_FileContext_t *C)
             eResult = kOTA_Err_SignatureCheckFailed;
         }
     }
-#if testrunnerFULL_OTA_PAL_ENABLED
+#ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS || testrunnerFULL_OTA_PAL_ENABLED
 	aws_ota_imgaddr = 0;
     aws_ota_imgsz = 0;
     aws_ota_target_hdr_get = false;
@@ -437,8 +442,9 @@ int16_t prvPAL_WriteBlock_rtl8721d(OTA_FileContext_t *C, int32_t iOffset, uint8_
     static bool_t wait_target_img = true;
     static uint32_t img_sign = 0;
     uint32_t WriteLen, offset;
+    uint32_t version=0,major=0,minor=0,build=0;
 
-#if testrunnerFULL_OTA_PAL_ENABLED
+#ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS || testrunnerFULL_OTA_PAL_ENABLED
     OTA_PRINT("[OTA_TEST] Write %d bytes @ 0x%x\n", iBlockSize, address+iOffset);
     device_mutex_lock(RT_DEV_LOCK_FLASH);
     FLASH_EraseXIP(EraseSector, C->lFileHandle -SPI_FLASH_BASE);
@@ -455,88 +461,114 @@ int16_t prvPAL_WriteBlock_rtl8721d(OTA_FileContext_t *C, int32_t iOffset, uint8_
     return iBlockSize;
 #endif
 
-    if (aws_ota_target_hdr_get != true) {
+	if (aws_ota_target_hdr_get != true)
+	{
         u32 RevHdrLen;
         int i;
-        if(iOffset != 0){
-            OTA_PRINT("OTA header not found yet\r\n");
+        if(iOffset == 0)
+        {
+            //OTA_PRINT("OTA header not found yet\r\n");
             //configASSERT(0);
-            return -1;
-        }
-        wait_target_img = true;
-        img_sign = 0;
-        aws_ota_imgaddr = 0;
-        aws_ota_imgsz = 0;
-        memset((void *)&aws_ota_target_hdr, 0, sizeof(update_ota_target_hdr));
-        memset((void *)aws_ota_signature, 0, sizeof(aws_ota_signature));
-        memcpy((u8*)(&aws_ota_target_hdr.FileHdr), pacData, sizeof(aws_ota_target_hdr.FileHdr));
-        if(aws_ota_target_hdr.FileHdr.HdrNum > 2 || aws_ota_target_hdr.FileHdr.HdrNum <= 0) {
-            OTA_PRINT("INVALID IMAGE BLOCK 0\r\n");
-			#if OTA_DEBUG && OTA_MEMDUMP
-            vMemDump(pacData, iBlockSize, NULL);
-            #endif
-            vTaskDelay(500);
-            configASSERT(0);
-            return -1;
-        }
-        memcpy((u8*)(&aws_ota_target_hdr.FileImgHdr[HdrIdx]), pacData+sizeof(aws_ota_target_hdr.FileHdr), 8);
-        RevHdrLen = (aws_ota_target_hdr.FileHdr.HdrNum * aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgHdrLen) + sizeof(aws_ota_target_hdr.FileHdr);
-        if (!get_ota_tartget_header(pacData, RevHdrLen, &aws_ota_target_hdr, ota_target_index)) {
-            OTA_PRINT("Get OTA header failed\n");
-            #if OTA_DEBUG && OTA_MEMDUMP
-            vMemDump(pacData, iBlockSize, "Header");
-            #endif
-            return -1;
-        }
+            //return -1;
+	        wait_target_img = true;
+	        img_sign = 0;
+	        //aws_ota_imgsz = 0;
+	        memset((void *)&aws_ota_target_hdr, 0, sizeof(update_ota_target_hdr));
+	        memset((void *)aws_ota_signature, 0, sizeof(aws_ota_signature));
+	        memcpy((u8*)(&aws_ota_target_hdr.FileHdr), pacData, sizeof(aws_ota_target_hdr.FileHdr));
+	        if(aws_ota_target_hdr.FileHdr.HdrNum > 2 || aws_ota_target_hdr.FileHdr.HdrNum <= 0)
+	        {
+	            OTA_PRINT("INVALID IMAGE BLOCK 0\r\n");
+				#if OTA_DEBUG && OTA_MEMDUMP
+	            vMemDump(pacData, iBlockSize, NULL);
+	            #endif
+	            return -1;
+	        }
+	        memcpy((u8*)(&aws_ota_target_hdr.FileImgHdr[HdrIdx]), pacData+sizeof(aws_ota_target_hdr.FileHdr), 8);
+	        RevHdrLen = (aws_ota_target_hdr.FileHdr.HdrNum * aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgHdrLen) + sizeof(aws_ota_target_hdr.FileHdr);
+	        if (!get_ota_tartget_header(pacData, RevHdrLen, &aws_ota_target_hdr, ota_target_index))
+	        {
+	            OTA_PRINT("Get OTA header failed\n");
+	            #if OTA_DEBUG && OTA_MEMDUMP
+	            vMemDump(pacData, iBlockSize, "Header");
+	            #endif
+	            return -1;
+	        }
 #if 0
-		printf("aws_ota_target_hdr.FileHdr.FwVer=0x%08X\n",aws_ota_target_hdr.FileHdr.FwVer);
-		printf("aws_ota_target_hdr.FileHdr.FwVer=0x%08X\n",aws_ota_target_hdr.FileHdr.HdrNum);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].ImgId=%s\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgId);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].ImgHdrLen=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgHdrLen);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].Checksum=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].Checksum);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].ImgLen=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].Offset=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].Offset);
-		printf("aws_ota_target_hdr.FileImgHdr[%d].FlashAddr=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].FlashAddr);
-		printf("aws_ota_target_hdr.Sign[%d]=%s\n",HdrIdx, aws_ota_target_hdr.Sign[HdrIdx]);
-		printf("aws_ota_target_hdr.ValidImgCnt=%d\n",aws_ota_target_hdr.ValidImgCnt);
+			printf("aws_ota_target_hdr.FileHdr.FwVer=0x%08X\n",aws_ota_target_hdr.FileHdr.FwVer);
+			printf("aws_ota_target_hdr.FileHdr.FwVer=0x%08X\n",aws_ota_target_hdr.FileHdr.HdrNum);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].ImgId=%s\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgId);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].ImgHdrLen=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgHdrLen);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].Checksum=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].Checksum);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].ImgLen=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].Offset=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].Offset);
+			printf("aws_ota_target_hdr.FileImgHdr[%d].FlashAddr=0x%08X\n",HdrIdx, aws_ota_target_hdr.FileImgHdr[HdrIdx].FlashAddr);
+			printf("aws_ota_target_hdr.ValidImgCnt=%d\n",aws_ota_target_hdr.ValidImgCnt);
 #endif
-		//if((aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen)==0)
-		//{
-		//	OTA_PRINT("Get OTA header failed\n");
-		//	vMemDump(pacData, iBlockSize, "Header");
-		//	return -1;
-		//}
-        /*get new image length from the firmware header*/
-        NewImg2Len = aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen;
-        NewImg2BlkSize = ((NewImg2Len - 1)/4096) + 1;
+			version = aws_ota_target_hdr.FileHdr.FwVer;
+			major = version / 1000000;
+			minor = (version - (major*1000000)) / 1000;
+			build = (version - (major*1000000) - (minor * 1000))/1;
+			if( aws_ota_target_hdr.FileHdr.FwVer <= (APP_VERSION_MAJOR*1000000 + APP_VERSION_MINOR * 1000 + APP_VERSION_BUILD))
+			{
+				OTA_PRINT("OTA failed!!!\n");
+				OTA_PRINT("New Firmware version(%d,%d,%d) must greater than current firmware version(%d,%d,%d)\n",major,minor,build,APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_BUILD);
+				return -1;
+			}
+			else
+			{
+				OTA_PRINT("New Firmware version (%d,%d,%d), current firmware version(%d,%d,%d)\n",major,minor,build,APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_BUILD);
+			}
 
-        OTA_PRINT("[OTA][%s] NewImg2BlkSize %d\n", __FUNCTION__, NewImg2BlkSize);
-        device_mutex_lock(RT_DEV_LOCK_FLASH);
-        for( i = 0; i < NewImg2BlkSize; i++){
-            //flash_erase_sector(&flash, C->lFileHandle -SPI_FLASH_BASE + i * 4096);
-            FLASH_EraseXIP(EraseSector, C->lFileHandle -SPI_FLASH_BASE + i * 4096);
-            OTA_PRINT("[OTA] Erase sector @ 0x%x\n", C->lFileHandle - SPI_FLASH_BASE + i * 4096);
+	        /*get new image length from the firmware header*/
+	        NewImg2Len = aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen;
+	        NewImg2BlkSize = ((NewImg2Len - 1)/4096) + 1;
+
+	        OTA_PRINT("[OTA][%s] NewImg2BlkSize %d\n", __FUNCTION__, NewImg2BlkSize);
+	        //device_mutex_lock(RT_DEV_LOCK_FLASH);
+	        //for( i = 0; i < NewImg2BlkSize; i++){
+	            //flash_erase_sector(&flash, C->lFileHandle -SPI_FLASH_BASE + i * 4096);
+	        //    FLASH_EraseXIP(EraseSector, C->lFileHandle -SPI_FLASH_BASE + i * 4096);
+	        //    OTA_PRINT("[OTA] Erase sector @ 0x%x\n", C->lFileHandle - SPI_FLASH_BASE + i * 4096);
+	        //}
+	        //device_mutex_unlock(RT_DEV_LOCK_FLASH);
+	        /*the upgrade space should be masked, because the encrypt firmware is used
+	        for checksum calculation*/
+	        //OTF_Mask(1, (C->lFileHandle -SPI_FLASH_BASE), NewImg2BlkSize, 1);
+	        aws_ota_target_hdr_get = true;
         }
-        device_mutex_unlock(RT_DEV_LOCK_FLASH);
-        /*the upgrade space should be masked, because the encrypt firmware is used
-        for checksum calculation*/
-        //OTF_Mask(1, (C->lFileHandle -SPI_FLASH_BASE), NewImg2BlkSize, 1);
-        aws_ota_target_hdr_get = true;
+        else
+        {
+	        aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen = C->ulFileSize - (C->ulFileSize%1024) - 1024;
+	        aws_ota_target_hdr.FileHdr.HdrNum = 0x1;
+	        aws_ota_target_hdr.FileImgHdr[HdrIdx].Offset = 0x20;
+        }
     }
+
     OTA_PRINT("[OTA][%s] iFileSize %d, iOffset: 0x%x: iBlockSize: 0x%x\n", __FUNCTION__, C->ulFileSize, iOffset, iBlockSize);
 	if((C->ulFileSize/OTA_FILE_BLOCK_SIZE) == (iOffset/OTA_FILE_BLOCK_SIZE)){
-		OTA_PRINT("[OTA] Final block with signature arrived\n");
-		#if OTA_DEBUG && OTA_MEMDUMP
-		vMemDump(pacData, iBlockSize, "Full signature");
-		#endif
-		uint32_t ota_size = iBlockSize-1;
 
-		OTA_PRINT("[OTA][%s] OTA1 Sig Size is %d\n", __FUNCTION__, ota_size);
-		C->pxSignature->usSize = ota_size;
-		memcpy(C->pxSignature->ucData, pacData, ota_size);
-		#if OTA_DEBUG && OTA_MEMDUMP
-		vMemDump(C->pxSignature->ucData, C->pxSignature->usSize, "Signature Write");
-		#endif
+		if(C->pxSignature != NULL && C->pxSignature->usSize > 10 )
+		{
+			OTA_PRINT("[OTA][%s] OTA1 Sig Size is %d\n", __FUNCTION__, C->pxSignature->usSize);
+			#if OTA_DEBUG && OTA_MEMDUMP
+			vMemDump(C->pxSignature->ucData, C->pxSignature->usSize, "AWS_Signature");
+			#endif
+		}
+		else
+		{
+			OTA_PRINT("[OTA] Final block with signature arrived\n");
+			#if OTA_DEBUG && OTA_MEMDUMP
+			vMemDump(pacData, iBlockSize, "Full signature");
+			#endif
+			uint32_t ota_size = iBlockSize-1;
+			OTA_PRINT("[OTA][%s] OTA1 Sig Size is %d\n", __FUNCTION__, ota_size);
+			C->pxSignature->usSize = ota_size;
+			memcpy(C->pxSignature->ucData, pacData, ota_size);
+			#if OTA_DEBUG && OTA_MEMDUMP
+			vMemDump(C->pxSignature->ucData, C->pxSignature->usSize, "Signature Write");
+			#endif
+		}
 	}
 
     if(aws_ota_imgsz >= aws_ota_target_hdr.FileImgHdr[HdrIdx].ImgLen){
@@ -599,6 +631,7 @@ int16_t prvPAL_WriteBlock_rtl8721d(OTA_FileContext_t *C, int32_t iOffset, uint8_
 #endif
     device_mutex_unlock(RT_DEV_LOCK_FLASH);
     aws_ota_imgsz += WriteLen;
+
     return iBlockSize;
 }
 
@@ -707,8 +740,7 @@ OTA_Err_t prvPAL_SetPlatformImageState_rtl8721d (OTA_ImageState_t eState)
                                     sizeof( xDescCopy ) / AWS_NVM_QUAD_SIZE ) == ( bool_t ) pdTRUE )
 #endif
         {
-
-#if testrunnerFULL_OTA_PAL_ENABLED
+#ifdef AMAZON_FREERTOS_ENABLE_UNIT_TESTS || testrunnerFULL_OTA_PAL_ENABLED
 			ota_imagestate = AWS_OTA_IMAGE_STATE_FLAG_IMG_INVALID;
 			device_mutex_lock(RT_DEV_LOCK_FLASH);
     		flash_write_word(&flash, AWS_OTA_IMAGE_STATE_FLASH_OFFSET, ota_imagestate);

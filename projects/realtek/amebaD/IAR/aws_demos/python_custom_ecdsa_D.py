@@ -1,15 +1,90 @@
 from OpenSSL import crypto
 from socket import gethostname
 import os
+import array as arr
+import subprocess
+
+#Get fw version from aws_application_version.h
+subprocess.call([r'get_version.bat'])
+
+#Add OTA firmware header
+file = open('tmp_MAJOR.txt')
+for line in file:
+    fields = line.strip().split()
+Major = int(fields[0])
+file.close()
+
+file = open('tmp_MINOR.txt')
+for line in file:
+    fields = line.strip().split()
+Minor = int(fields[0])
+file.close()
+
+file = open('tmp_BUILD.txt')
+for line in file:
+    fields = line.strip().split()
+Build = int(fields[0])
+file.close()
+
+os.remove("tmp_MAJOR.txt")
+os.remove("tmp_MINOR.txt")
+os.remove("tmp_BUILD.txt")
+
+#version = 0xffffffff
+version = Major*1000000 + Minor*1000 + Build
+version_byte = version.to_bytes(4,'little')
+
+headernum = 0x00000001
+headernum_byte = headernum.to_bytes(4,'little')
+
+signature = 0x3141544f
+signature_byte = signature.to_bytes(4,'little')
+
+headerlen = 0x00000018
+headerlen_byte = headerlen.to_bytes(4,'little')
+
+checksum = 0;
+with open("./Debug/Exe/km4_image/km0_km4_image2.bin", "rb") as f:
+    byte = f.read(1)
+    num = int.from_bytes(byte, 'big')
+    checksum += num
+    while byte != b"":
+        byte = f.read(1)
+        num = int.from_bytes(byte, 'big')
+        checksum += num
+checksum_byte = checksum.to_bytes(4,'little')
+
+imagelen = os.path.getsize("./Debug/Exe/km4_image/km0_km4_image2.bin")
+imagelen_bytes = imagelen.to_bytes(4, 'little')
+
+offset = 0x00000020
+offset_bytes = offset.to_bytes(4, 'little')
+
+rvsd = 0x0800b000
+rvsd_bytes = rvsd.to_bytes(4, 'little')
+
+img2_bin = open('./Debug/Exe/km4_image/km0_km4_image2.bin', 'br').read()
+
+f = open("./Debug/Exe/km4_image/OTA_ALL.bin", 'wb')
+f.write(version_byte)
+f.write(headernum_byte)
+f.write(signature_byte)
+f.write(headerlen_byte)
+f.write(checksum_byte)
+f.write(imagelen_bytes)
+f.write(offset_bytes)
+f.write(rvsd_bytes)
+f.write(img2_bin)
+f.close()
 
 #Reading the Private key generated using openssl(should be generated using ECDSA P256 curve)
-f = open("ecdsasigner.key")
+f = open("ecdsa-sha256-signer.key.pem")
 pv_buf = f.read()
 f.close()
 priv_key = crypto.load_privatekey(crypto.FILETYPE_PEM, pv_buf)
 
 #Reading the certificate generated using openssl(should be generated using ECDSA P256 curve)
-f = open("ecdsasigner.crt")
+f = open("ecdsa-sha256-signer.crt.pem")
 ss_buf = f.read()
 f.close()
 ss_cert = crypto.load_certificate(crypto.FILETYPE_PEM, ss_buf)
