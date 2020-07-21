@@ -11,7 +11,10 @@
   "certificatePath": "../certificates/",
   "awsRegion": "ap-southeast-1",
   "auth": {
-    "method": "environment"
+    "method": "file",
+    "credentials": {
+      "profile": "default"
+    }
   },
   "product": {
     "name": "AmebaD",

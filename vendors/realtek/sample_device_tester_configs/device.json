@@ -1,7 +1,7 @@
 [
   {
-    "id": "AmebaD",
-    "sku": "8721D",
+    "id": "RTL8722DM",
+    "sku": "RTL8722DM",
     "features": [
       {
         "name": "WIFI",
@@ -48,7 +48,7 @@
         "identifiers": [
           {
             "name": "serialNo",
-            "value": "<serialNo-value>"
+            "value": "ABCDEFGHJIJ"
           }
         ]
       }

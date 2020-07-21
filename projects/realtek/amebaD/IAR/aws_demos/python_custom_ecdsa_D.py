@@ -4,31 +4,24 @@ import os
 import array as arr
 import subprocess
 
-#Get fw version from aws_application_version.h
-subprocess.call([r'get_version.bat'])
+Major = 0
+Minor = 0
+Build = 0
+with open('../../../../../demos/include/aws_application_version.h') as f:
+    for line in f:
+        if line.find('APP_VERSION_MAJOR') != -1:
+            x = line.split()
+            Major = int(x[2])
+        if line.find('APP_VERSION_MINOR') != -1:
+            x = line.split()
+            Minor = int(x[2])
+        if line.find('APP_VERSION_BUILD') != -1:
+            x = line.split()
+            Build = int(x[2])
 
-#Add OTA firmware header
-file = open('tmp_MAJOR.txt')
-for line in file:
-    fields = line.strip().split()
-Major = int(fields[0])
-file.close()
-
-file = open('tmp_MINOR.txt')
-for line in file:
-    fields = line.strip().split()
-Minor = int(fields[0])
-file.close()
-
-file = open('tmp_BUILD.txt')
-for line in file:
-    fields = line.strip().split()
-Build = int(fields[0])
-file.close()
-
-os.remove("tmp_MAJOR.txt")
-os.remove("tmp_MINOR.txt")
-os.remove("tmp_BUILD.txt")
+print('Major:' + str(Major))
+print('Minor:' + str(Minor))
+print('Build:' + str(Build))
 
 #version = 0xffffffff
 version = Major*1000000 + Minor*1000 + Build
@@ -116,6 +109,8 @@ f.write(x)
 f.write(ota1_sig)
 f.write(bytes([ota1_sig_size]))
 f.close()
+
+print('done')
 
 #Debug info in case you want to check the actual signature binaries generated separately
 '''

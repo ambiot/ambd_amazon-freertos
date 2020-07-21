@@ -7,28 +7,28 @@
     "name": "IAR",
     "version": "8.1",
     "command": [
-      "C:/working/github/devicetester_freertos_win/configs/build.bat"
+      "C:/working/github/devicetester_freertos_win/configs/script_templates/build.bat {{enableTests}}"
     ]
   },
   "flashTool": {
     "name": "1-10_MP_Image_Tool",
     "version": "2.4",
     "command": [
-      "C:/working/github/devicetester_freertos_win/configs/flash.bat"
+      "C:/working/github/devicetester_freertos_win/configs/script_templates/flash.bat {{buildImageName}}"
     ],
     "buildImageInfo" : {
-      "testsImageName": "km0_km4_image2.bin",
-      "demosImageName": "km0_km4_image2.bin"
+      "testsImageName": "aws_tests",
+      "demosImageName": "aws_demos"
     }
   },
   "clientWifiConfig": {
-    "wifiSSID": "TestAP",
-    "wifiPassword": "Password",
+    "wifiSSID": "RealEZ-2.4G",
+    "wifiPassword": "RealEasy",
     "wifiSecurityType": "eWiFiSecurityWPA2"
   },
   "testWifiConfig": {
-    "wifiSSID": "TestAP",
-    "wifiPassword": "Password",
+    "wifiSSID": "RealEZ-2.4G",
+    "wifiPassword": "RealEasy",
     "wifiSecurityType": "eWiFiSecurityWPA2"
   },
   "echoServerConfiguration": {
@@ -48,7 +48,7 @@
       "signerCertificateFileName": "ecdsa-sha256-signer.crt.pem",
       "compileSignerCertificate": true,
       "signCommand": [
-        "C:/working/github/devicetester_freertos_win/configs/sign.bat {{inputImageFilePath}} {{outputSignatureFilePath}}"
+        "C:/working/github/devicetester_freertos_win/configs/script_templates/sign.bat {{inputImageFilePath}} {{outputSignatureFilePath}}"
       ]
     }
   }
